@@ -143,3 +143,5 @@ Every critical node (`HTTP Request`, `Gemini`, `Append or update row in sheet`, 
 ✅ De-duplication via Review ID — working
 ✅ Error logging — working
 ✅ Weekly stats report — working
+---
+   Last updated: August 2026
