@@ -1,0 +1,863 @@
+{
+  "name": "AI Based Customer Feedback Analyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nreturn [{\n  json: {\n    name: (body.Name || body.name || 'Anonymous').toString().slice(0, 100),\n    email: (body.Email || body.email || '').toString().slice(0, 150),\n    feedback_text: (body.Feedback || body.feedback || body.message || '').toString().trim(),\n    rating: (body.Rating || body.rating || '').toString(),\n    source: 'form',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "dd12b6ed-7080-4b08-8dfb-ec9b03b70ea5",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "811dae31-326d-44cf-ba20-4ffebee35536",
+              "leftValue": "={{ $json.feedback_text.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "cbc51cd4-f05f-42b5-8a7b-34a06ebbed66",
+              "leftValue": "={{ $json.feedback_text.length }}",
+              "rightValue": 5000,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        -144
+      ],
+      "id": "877a4464-b7d3-423b-9578-80cc2a10d15f",
+      "name": "Valid Feedback?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `Analyze the sentiment of this customer feedback and respond with ONLY valid JSON (no markdown, no code fences, no explanation) in exactly this shape: {\"sentiment\": \"positive|negative|neutral\", \"score\": number between -1 and 1, \"summary\": \"one sentence summary\"}.\\n\\nFeedback: \"${$json.feedback_text}\"` }] }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        640,
+        -144
+      ],
+      "id": "1ceb8250-823b-4d70-9a0e-7a8699e47f73",
+      "name": "Gemini - Analyze Sentiment",
+      "retryOnFail": true,
+      "waitBetweenTries": 4000,
+      "maxTries": 5,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "ZcURotlBRTzTuqf2",
+          "name": "Query Auth account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $input.item.json;\nlet result = { sentiment: 'unknown', score: 0, summary: 'Sentiment analysis failed' };\ntry {\n  const raw = input.candidates[0].content.parts[0].text;\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  result = {\n    sentiment: (parsed.sentiment || 'unknown').toLowerCase(),\n    score: typeof parsed.score === 'number' ? parsed.score : 0,\n    summary: parsed.summary || ''\n  };\n} catch (err) {\n  result.parse_error = err.message;\n}\nconst original = $('Valid Feedback?').item.json;\nreturn { json: { ...original, ...result } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -192
+      ],
+      "id": "3f2ed5d7-31be-4d49-aafa-307c0da7864e",
+      "name": "Parse Gemini Response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9d977685-7b56-45e0-87d6-afbb5f72902b",
+              "leftValue": "={{ $json.sentiment }}",
+              "rightValue": "negative",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1264,
+        -32
+      ],
+      "id": "c98b414a-20e1-4176-b209-a6207900f82c",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "abdulwahab484512@gmail.com",
+        "subject": "=⚠️ Negative Feedback Alert - {{ $json.name }}",
+        "message": "=<div style=\"background:#ffffff; padding:0; font-family:Arial, Helvetica, sans-serif;\">\n<table role=\"presentation\" width=\"100%\" style=\"max-width:560px; margin:0 auto; border-collapse:collapse; border:1px solid #e5e5e5;\">\n<tr><td style=\"padding:20px 24px; border-bottom:1px solid #e5e5e5;\"><span style=\"font-size:14px; font-weight:bold; color:#1a1a1a;\">AI Based Customer Feedback Analyzer</span></td></tr>\n<tr><td style=\"padding:28px 24px 8px;\"><div style=\"font-size:18px; font-weight:bold; color:#1a1a1a;\">New negative feedback received</div></td></tr>\n<tr><td style=\"padding:0 24px 24px;\"><div style=\"font-size:14px; color:#5f5f5f; line-height:1.6;\">A customer submitted feedback that our system flagged as negative. Details below.</div></td></tr>\n<tr><td style=\"padding:0 24px;\">\n<table role=\"presentation\" width=\"100%\" style=\"border-collapse:collapse; border-top:1px solid #e5e5e5;\">\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; width:120px; border-bottom:1px solid #f0f0f0;\">Name</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; border-bottom:1px solid #f0f0f0;\">{{ $json.name }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; border-bottom:1px solid #f0f0f0;\">Email</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; border-bottom:1px solid #f0f0f0;\">{{ $json.email }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; border-bottom:1px solid #f0f0f0;\">Received</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; border-bottom:1px solid #f0f0f0;\">{{ $json.timestamp }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a;\">Sentiment score</td><td style=\"padding:12px 0; font-size:13px; color:#c0392b; font-weight:bold;\">{{ $json.score }} (negative)</td></tr>\n</table>\n</td></tr>\n<tr><td style=\"padding:24px 24px 4px;\"><div style=\"font-size:13px; color:#8a8a8a; margin-bottom:8px;\">Feedback</div><div style=\"font-size:14px; color:#1a1a1a; line-height:1.6; background:#f7f7f7; padding:14px 16px; border-radius:4px;\">{{ $json.feedback }}</div></td></tr>\n<tr><td style=\"padding:20px 24px 28px;\"><div style=\"font-size:13px; color:#8a8a8a; margin-bottom:8px;\">AI summary</div><div style=\"font-size:14px; color:#1a1a1a; line-height:1.6;\">{{ $json.summary }}</div></td></tr>\n<tr><td style=\"padding:0 24px 28px;\"><a href=\"mailto:{{ $json.email }}\" style=\"font-size:14px; color:#2563eb; text-decoration:none; font-weight:bold;\">Reply to customer →</a></td></tr>\n<tr><td style=\"padding:16px 24px; border-top:1px solid #e5e5e5; background:#fafafa;\"><div style=\"font-size:12px; color:#9a9a9a; line-height:1.6;\">This is an automated notification. You're receiving this because you're an administrator of this feedback system.</div></td></tr>\n</table>\n</div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        -128
+      ],
+      "id": "9d08e16a-9ab7-4bf2-9de9-dbd64879efbe",
+      "name": "Send a message",
+      "webhookId": "7a099b93-94fe-46ea-a917-d43182fe0a07",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "P5gQw9QYE6Ojxfcr",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        336
+      ],
+      "id": "ec225426-e086-42da-a689-6039cb2d4958",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U",
+          "mode": "list",
+          "cachedResultName": "AI Feedback Analyzer",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Feedback Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        240,
+        336
+      ],
+      "id": "afc68fc8-68d7-4f20-a4b4-156a87c27996",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MZAJZMG4o16nTubL",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nfunction getField(json, name) {\n  const key = Object.keys(json).find(k => k.toLowerCase() === name.toLowerCase());\n  return key ? json[key] : undefined;\n}\nfunction cleanTs(item) {\n  return String(getField(item.json, 'timestamp') || '').trim();\n}\n\nlet mostRecent = new Date(0);\nfor (const item of items) {\n  const ts = new Date(cleanTs(item));\n  if (!isNaN(ts.getTime()) && ts > mostRecent) mostRecent = ts;\n}\n\nconst sevenDaysAgo = new Date(mostRecent.getTime() - 7 * 24 * 60 * 60 * 1000);\nconst recentItems = items.filter(item => {\n  const ts = new Date(cleanTs(item));\n  return !isNaN(ts.getTime()) && ts >= sevenDaysAgo;\n});\n\nconst total = recentItems.length;\nlet positive = 0, negative = 0, neutral = 0, totalScore = 0;\nconst emailCounts = {};\n\nfor (const item of recentItems) {\n  const sentiment = String(getField(item.json, 'sentiment') || '').toLowerCase().trim();\n  const score = parseFloat(getField(item.json, 'score')) || 0;\n  const email = String(getField(item.json, 'email') || 'unknown').trim();\n\n  totalScore += score;\n  if (sentiment === 'positive') positive++;\n  else if (sentiment === 'negative') negative++;\n  else neutral++;\n\n  emailCounts[email] = (emailCounts[email] || 0) + 1;\n}\n\nconst avgScore = total > 0 ? (totalScore / total).toFixed(2) : 0;\n\n// Sirf un emails ko list karein jinhone 1 se zyada feedback diya\nconst repeatSubmitters = Object.entries(emailCounts)\n  .filter(([email, count]) => count > 1)\n  .sort((a, b) => b[1] - a[1])\n  .map(([email, count]) => `<li>${email} — ${count} submissions</li>`)\n  .join('');\n\nconst repeatSection = repeatSubmitters\n  ? `<h3>Repeat Feedback (Same Email, Multiple Submissions)</h3><ul>${repeatSubmitters}</ul>`\n  : `<p><i>No repeat submissions this week — all feedback came from unique emails.</i></p>`;\n\nreturn [{\n  json: {\n    total_feedback: total,\n    positive_count: positive,\n    negative_count: negative,\n    neutral_count: neutral,\n    average_score: avgScore,\n    report_date: mostRecent.toISOString().split('T')[0],\n    period_start: sevenDaysAgo.toISOString().split('T')[0],\n    period_end: mostRecent.toISOString().split('T')[0],\n    repeat_section_html: repeatSection\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        384
+      ],
+      "id": "8604c014-80b9-4d3b-8de6-f6907e306999",
+      "name": "Calculate Weekly Stats"
+    },
+    {
+      "parameters": {
+        "sendTo": "abdulwahab484512@gmail.com",
+        "subject": "=📊 Weekly Feedback Report - {{ $json.period_start }} to {{ $json.period_end }}",
+        "message": "=<div style=\"background:#ffffff; padding:0; font-family:Arial, Helvetica, sans-serif;\">\n<table role=\"presentation\" width=\"100%\" style=\"max-width:560px; margin:0 auto; border-collapse:collapse; border:1px solid #e5e5e5;\">\n<tr><td style=\"padding:20px 24px; border-bottom:1px solid #e5e5e5;\"><span style=\"font-size:14px; font-weight:bold; color:#1a1a1a;\">AI Based Customer Feedback Analyzer</span></td></tr>\n<tr><td style=\"padding:28px 24px 8px;\"><div style=\"font-size:18px; font-weight:bold; color:#1a1a1a;\">Weekly feedback report</div></td></tr>\n<tr><td style=\"padding:0 24px 24px;\"><div style=\"font-size:14px; color:#5f5f5f; line-height:1.6;\">Summary of customer feedback received between {{ $json.period_start }} and {{ $json.period_end }}.</div></td></tr>\n<tr><td style=\"padding:0 24px;\">\n<table role=\"presentation\" width=\"100%\" style=\"border-collapse:collapse; border-top:1px solid #e5e5e5;\">\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; width:160px; border-bottom:1px solid #f0f0f0;\">Total feedback</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; font-weight:bold; border-bottom:1px solid #f0f0f0;\">{{ $json.total_feedback }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; border-bottom:1px solid #f0f0f0;\">Average sentiment score</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; font-weight:bold; border-bottom:1px solid #f0f0f0;\">{{ $json.average_score }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; border-bottom:1px solid #f0f0f0;\">Positive</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; border-bottom:1px solid #f0f0f0;\">{{ $json.positive_count }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a; border-bottom:1px solid #f0f0f0;\">Negative</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a; border-bottom:1px solid #f0f0f0;\">{{ $json.negative_count }}</td></tr>\n<tr><td style=\"padding:12px 0; font-size:13px; color:#8a8a8a;\">Neutral</td><td style=\"padding:12px 0; font-size:13px; color:#1a1a1a;\">{{ $json.neutral_count }}</td></tr>\n</table>\n</td></tr>\n<tr><td style=\"padding:20px 24px 28px;\"><div style=\"font-size:13px; color:#8a8a8a; margin-bottom:6px;\">Note</div><div style=\"font-size:14px; color:#1a1a1a; line-height:1.6;\">{{ $json.repeat_section_html.replace(/<[^>]*>/g, '') }}</div></td></tr>\n<tr><td style=\"padding:16px 24px; border-top:1px solid #e5e5e5; background:#fafafa;\"><div style=\"font-size:12px; color:#9a9a9a; line-height:1.6;\">This report is generated automatically every 7 days. You're receiving this because you're an administrator of this feedback system.</div></td></tr>\n</table>\n</div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        336
+      ],
+      "id": "48aa09a6-1151-49f2-a7ff-251b2ccac70b",
+      "name": "Send a message1",
+      "webhookId": "5372920b-2d7d-4f23-afaf-e764dee0ae10",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "P5gQw9QYE6Ojxfcr",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "formTitle": "We Value Your Feedback!",
+        "formDescription": "Apna feedback share karein, hum ise seriously lete hain.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name"
+            },
+            {
+              "fieldLabel": "Email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Rating",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "1"
+                  },
+                  {
+                    "option": "2"
+                  },
+                  {
+                    "option": "3"
+                  },
+                  {
+                    "option": "4"
+                  },
+                  {
+                    "option": "5"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Feedback",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -32,
+        0
+      ],
+      "id": "cce81543-93bf-46a1-af3d-91089b0e3744",
+      "name": "On form submission",
+      "webhookId": "48c9966d-330f-416e-ac72-ae5cc3840e57"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google_maps_reviews"
+            },
+            {
+              "name": "place_id",
+              "value": "ChIJbxoq302n3zgRz19PZrE_01M"
+            },
+            {
+              "name": "api_key",
+              "value": "386276ed2d60aa87996de64726432803460518861ea9cd5a4ddf01e7bde2e61d"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -240,
+        -224
+      ],
+      "id": "5f027df5-d0f5-493b-bdf5-dd77e2072f14",
+      "name": "HTTP Request",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "reviews",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -208
+      ],
+      "id": "c3f5e3f6-a08a-4783-a488-b6cdae6bcfb3",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map((item, index) => {\n  const r = item.json;\n  return {\n    json: {\n      review_id: r.review_id || r.link || `${r.user?.name || 'unknown'}-${r.iso_date || index}`,\n      name: (r.user?.name || 'Google User').toString().slice(0, 100),\n      email: 'N/A - Not provided by Google Maps',\n      feedback_text: (r.original || r.snippet || '').toString().trim(),\n      rating: (r.rating || '').toString(),\n      source: 'google_maps',\n      timestamp: r.iso_date || new Date().toISOString()\n    },\n    pairedItem: index\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -208
+      ],
+      "id": "31ca5931-04e6-48ba-8bd7-4b6c2a4643b2",
+      "name": "Normalize Google Review"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        -224
+      ],
+      "id": "756f6614-25f7-4428-861f-33fdc2872639",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U",
+          "mode": "list",
+          "cachedResultName": "AI Based Customer Feedback Analyzer",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1147654422,
+          "mode": "list",
+          "cachedResultName": "Error Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit#gid=1147654422"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{$now}}",
+            "Node": "={{$json.node?.name || \"Gemini - Analyze Sentiment\"}}",
+            "Error": "={{$json.error?.message || $json.message}}",
+            "Workflow": "={{$workflow.name}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Node",
+              "displayName": "Node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Error",
+              "displayName": "Error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        912,
+        96
+      ],
+      "id": "fb4f3f83-8898-4681-b58b-8952af05922a",
+      "name": "Log Error",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MZAJZMG4o16nTubL",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U",
+          "mode": "list",
+          "cachedResultName": "AI Based Customer Feedback Analyzer",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Feedback Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1EeaC46fT2IeRqMr3hsmGC8VH8X1HXSWGz3v64Y_Yc_U/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Name": "={{ $json.name }}",
+            "Feedback": "={{ $json.feedback_text }}",
+            "Email": "={{ $json.email }}",
+            "Source": "={{ $json.source }}",
+            "Sentiment": "=\t{{ $json.sentiment }}",
+            "Summary": "={{ $json.summary }}",
+            "Score": "={{ $json.score}}",
+            "Rating": "={{ $json.rating }}",
+            "Review ID": "={{$json.review_id}}"
+          },
+          "matchingColumns": [
+            "Review ID"
+          ],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Feedback",
+              "displayName": "Feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Sentiment",
+              "displayName": "Sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Score",
+              "displayName": "Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rating",
+              "displayName": "Rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Review ID",
+              "displayName": "Review ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        -192
+      ],
+      "id": "329a8b28-f8e8-4b95-a850-394c426dc990",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MZAJZMG4o16nTubL",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Valid Feedback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Feedback?": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Analyze Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Gemini - Analyze Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Calculate Weekly Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Weekly Stats": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Normalize Google Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Google Review": {
+      "main": [
+        [
+          {
+            "node": "Valid Feedback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "u6pJxPtGXNFPbDcW",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "661b1140-9f07-4649-9770-13a8c3f980b8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "625d1c387b045bdc7abe5f476cccb812bba50737a8ab5e9f8ecf9a03598be583"
+  },
+  "nodeGroups": [],
+  "id": "VWEynPUj78dSO11l",
+  "tags": []
+}
